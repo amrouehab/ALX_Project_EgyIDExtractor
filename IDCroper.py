@@ -33,7 +33,8 @@ class CardExtractor:
 
         # Resize word to have consistent height
         target_height = 32  # Adjust as needed
-        word_resized = cv2.resize(word, (int(w * target_height / h), target_height))
+        target_width = int(w * target_height / h)  # Calculate target width based on aspect ratio
+        word_resized = cv2.resize(word, (target_width, target_height))   
         words.append(word_resized)
 
       # Concatenate words horizontally to form a single sentence image
@@ -56,26 +57,26 @@ class CardExtractor:
     def extractName(self, OCR):
         name_data = self.extract_data_area(13.0, 34.0, 30.0, 2.0)
         self.save_data_area(name_data, '1st_name_data_area.jpg')
-        name = OCR.extract_arabic_text('1st_name_data_area.jpg')
+        name = OCR.extract_arabic_text(name_data)
         name_data = self.extract_data_area(19.0, 29.0, 30.0, 2.0)
         self.save_data_area(name_data, '2nd_name_data_area.jpg')
-        name2 = OCR.extract_arabic_text('2nd_name_data_area.jpg')
+        name2 = OCR.extract_arabic_text(name_data)
         return name+" "+name2
     
     def extractAddress(self, OCR):
-        address_data = self.extract_data_area(24.0, 25.0, 30.0, 2.0)
+        address_data = self.extract_data_area(25.0, 23.0, 30.0, 2.0)
         self.save_data_area(address_data, '1staddress_data_area.jpg')
-        address = OCR.extract_arabic_text('1staddress_data_area.jpg')
+        address = OCR.extract_arabic_text(address_data)
 
-        address_data = self.extract_data_area(29.0, 19.0, 30.0, 2.0)
+        address_data = self.extract_data_area(30.5, 18.0, 30.0, 2.0)
         self.save_data_area(address_data, '2ndaddress_data_area.jpg')
-        address2 = OCR.extract_arabic_text('2ndaddress_data_area.jpg')
+        address2 = OCR.extract_arabic_text(address_data)
 
         return address+" "+address2
     def extractID(self, OCR):
         id_data = self.extract_data_area(40.0, 5.0, 30.0, 2.0)
         self.save_data_area(id_data, 'id_data_area.jpg')
-        ID = OCR.extract_numbers('id_data_area.jpg')
+        ID = OCR.extract_numbers(id_data)
         return ID
 
     def getFront_IDData(self):
@@ -118,135 +119,271 @@ class CardExtractor:
       # Return the date as a datetime object
       return  f"{year}-{month:02d}-{day:02d}" 
     
-    def find_religion(self,text):
-     try:
+    def find_religion(self, text):
+       try:
         # Define regular expressions for the words "مسلم" and "مسيحي"
-        muslim_pattern = re.compile('مسلم')
-        christian_pattern = re.compile('مسيحي')
-
+        muslim_pattern = re.compile(r'مسلم', re.IGNORECASE)
+        christian_pattern = re.compile(r'مسيحي', re.IGNORECASE)
         # Split the text into lines and iterate through each line
         for line in text.split('\n'):
             # Search for the words in the line
             muslim_match = muslim_pattern.search(line)
             christian_match = christian_pattern.search(line)
-
-            # Return the appropriate word if found in the line
+            # Return the appropriate word if found in the text
             if muslim_match:
                 return "مسلم"
             elif christian_match:
                 return "مسيحي"
-
+        
         # If no match found in any line, return None
         return None
-     except Exception as e:
+       except Exception as e:
         print("Error:", e)
         return None
+    def concatenate_images(img1, img2, img3):
+        # Find contours in each binary image
+        contours1, _ = cv2.findContours(img1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours2, _ = cv2.findContours(img2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours3, _ = cv2.findContours(img3, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    def find_gender(self,text):
+        # Get bounding boxes of text regions in each image
+        x1, y1, w1, h1 = cv2.boundingRect(contours1[0])
+        x2, y2, w2, h2 = cv2.boundingRect(contours2[0])
+        x3, y3, w3, h3 = cv2.boundingRect(contours3[0])
+
+        # Determine dimensions of concatenated image
+        max_width = max(x1 + w1, x2 + w2, x3 + w3)
+        total_height = h1 + h2 + h3
+
+        # Create blank concatenated image
+        concatenated_img = np.zeros((total_height, max_width), dtype=np.uint8)
+
+        # Paste each binary image into the concatenated image
+        concatenated_img[y1:y1+h1, 0:w1] = img1
+        concatenated_img[y2+h1:y2+h1+h2, 0:w2] = img2
+        concatenated_img[y3+h1+h2:y3+h1+h2+h3, 0:w3] = img3
+
+        return concatenated_img
+    def find_gender(self, text):
      try:
-      
-        male_pattern = re.compile('ذكر')
-        female_pattern = re.compile('انثي')
+        # Define regular expression patterns for male and female genders
+        male_patterns = [
+            re.compile(r'ذكر'),
+            re.compile(r'ذكرى'),
+            re.compile(r'دكري'),
+            re.compile(r'دكر')
+        ]
 
-        # Split the text into lines and iterate through each line
+        female_patterns = [
+            re.compile(r'أنثى'),
+            re.compile(r'أنتى'),
+            re.compile(r'انتى'),
+            re.compile(r'انثى')
+        ]
+
+        # Iterate through each line in the text
         for line in text.split('\n'):
-            # Search for the words in the line
-            male_match = male_pattern.search(line)
-            female_match = female_pattern.search(line)
+            # Search for male patterns
+            for pattern in male_patterns:
+                male_match = pattern.search(line)
+                if male_match:
+                    print("Matched text:", male_match.group())
+                    return "ذكر", 'm'
 
-            # Return the appropriate word if found in the line
-            if male_match:
-                return "ذكر",'m'
-            elif female_match:
-                return "انثي",'f'
+            # Search for female patterns
+            for pattern in female_patterns:
+                female_match = pattern.search(line)
+                if female_match:
+                    print("Matched text:", female_match.group())
+                    return "أنثى", 'f'
 
-        # If no match found in any line, return None
-        return "",''
-     except Exception as e:
+        # If no match found, return empty strings
+        return "", ""
+     except Exception as e:     
         print("Error:", e)
-        return "", '' 
+        return "", ""
      
-    def find_Mstatus(self,text,gender):
+    def extractEndDate(self, text):
+        # Extract the last 10 characters from the string
+        end_date = text[-12:]
+        return end_date 
+    
+    def find_Mstatus(self, text, gender):
      try:
-        if gender ==  'm':
-           single_pattern= re.compile('أعزب')
-           single='أعزب'
-           married_pattern= re.compile('متزوج')
-           married='متزوج'
-           divorced_pattern=re.compile('مطلق')
-           div='مطلق'
-           armal_pattern=re.compile('ارمل')
-           arm='ارمل'
+        if gender == 'm':
+            single_patterns = [
+                re.compile(r'أعزب'),
+                re.compile(r'اعرب'),
+                re.compile(r'اغزب'),
+                re.compile(r'اغزب'),
+                re.compile(r'اعزب'),
+                re.compile(r'اعرب'),
+                re.compile(r'أعرب'),               
+                re.compile(r'أعزب'),  # Include optional ending for gender-neutral matching
+                re.compile(r'عازب'),
+                re.compile(r'عازب')  # Include optional ending for gender-neutral matching
+            ]
+            married_patterns = [
+                re.compile(r'متزوج'),
+                re.compile(r'متزوح'),
+                re.compile(r'متروج'),  # Include optional ending for female gender
+                re.compile(r'منروج'),
+                re.compile(r'منروج')  # Include optional ending for female gender
+            ]
+            divorced_patterns = [
+                re.compile(r'مطلق'),
+                re.compile(r'مطلف'),
+            ]
+            widower_patterns = [
+                re.compile(r'أرمل'),
+                re.compile(r'ارمل'),
+            ]
         else:
-           single_pattern= re.compile('عزباء')
-           single='عزباء'
-           married_pattern= re.compile('متزوجة')
-           married='متزوجة'
-           divorced_pattern=re.compile('مطلقة')
-           div='مطلقة'
-           armal_pattern=re.compile('ارملة')
-           arm='ارملة'   
+            single_patterns = [
+                re.compile(r'عزباء'),
+                re.compile(r'عزب'),  # Include optional ending for male gender
+                re.compile(r'عزبة'),
+                re.compile(r'عازبة|عازب')  # Include optional ending for gender-neutral matching
+            ]
+            married_patterns = [
+                re.compile(r'متزوجة'),
+                re.compile(r'متزوج|متزوجة'),  # Include optional ending for male gender
+                re.compile(r'مزوجة'),
+                re.compile(r'مزوج|مزوجة')  # Include optional ending for male gender
+            ]
+            divorced_patterns = [
+                re.compile(r'مطلقة'),
+                re.compile(r'مطلق')
+            ]
+            widower_patterns = [
+                re.compile(r'أرملة'),
+                re.compile(r'أرمل')
+            ]
 
-
-        # Split the text into lines and iterate through each line
+        # Iterate through each line in the text
         for line in text.split('\n'):
-            # Search for the words in the line
-            singlepattern = single_pattern.search(line)
-            marriedpattern = married_pattern.search(line)
-            divorcedpattern=divorced_pattern.search(line)
-            armalpattern=armal_pattern.search(line)
-            # Return the appropriate word if found in the line        
-            if singlepattern:
-                return single
-            elif marriedpattern:
-                return married
-            elif divorcedpattern:
-                return div
-            elif armalpattern:
-                return arm
+            # Search for single patterns
+            for pattern in single_patterns:
+                single_match = pattern.search(line)
+                if single_match:
+                    print("Matched text (Single):", single_match.group())
+                    return "أعزب" if gender == 'm' else "عزباء"
 
-        # If no match found in any line, return None
+            # Search for married patterns
+            for pattern in married_patterns:
+                married_match = pattern.search(line)
+                if married_match:
+                    print("Matched text (Married):", married_match.group())
+                    return "متزوج" if gender == 'm' else "متزوجة"
+
+            # Search for divorced patterns
+            for pattern in divorced_patterns:
+                divorced_match = pattern.search(line)
+                if divorced_match:
+                    print("Matched text (Divorced):", divorced_match.group())
+                    return "مطلق" if gender == 'm' else "مطلقة"
+
+            # Search for widower patterns
+            for pattern in widower_patterns:
+                widower_match = pattern.search(line)
+                if widower_match:
+                    print("Matched text (Widower):", widower_match.group())
+                    return "أرمل" if gender == 'm' else "أرملة"
+
+        # If no match found, return None
         return None
      except Exception as e:
         print("Error:", e)
-        return None  
+        return None
     def getBack_IDData(self):
       OCR = OCREngine()
+      All_data = self.extract_data_area(7.7, 22.0, 20.0, 16.0)
+      self.save_data_area(All_data, 'profession1_data_area.jpg')
+      All_ocr = OCR.extract_arabic_text(All_data)
+      # Specify the file path where you want to save the text file
+      file_path = "rtl_text.txt"
+      # Open the file in write mode ('w') and specify encoding='utf-8' for handling Arabic text
+      with open(file_path, 'w', encoding='utf-8') as file:
+        file.write(All_ocr)
+
       # Extract profession data
-      profession_data = self.extract_data_area(7.5, 38.0, 20.0, 16.0)
-      self.save_data_area(profession_data, 'profession_data_area.jpg')
-      profession = OCR.extract_arabic_text('profession_data_area.jpg')    
-      # Extract religion data
-      # religion_data = self.extract_data_area(13.0, 32.0, 45.0, 17.0)
-      religion_data = self.extract_data_area(16.0, 32.0, 18.0, 16.5)
-      self.save_data_area(religion_data, 'religion_data_area.jpg')
-      combined=self.reduce_black_space('religion_data_area.jpg')
-      self.save_data_area(combined, 'combined_data_area.jpg')
-      compinedtext = OCR.extract_arabic_text('combined_data_area.jpg')
-      print('compinedtext', compinedtext)
-      religion=self.find_religion(compinedtext)
+      profession_data1 = self.extract_data_area(7.7, 42.0, 20.0, 16.0)
+      profession_data2= self.extract_data_area(12.0, 37.0, 20.0, 16.0)
+
+      self.save_data_area(profession_data1, 'profession1_data_area.jpg')
+      self.save_data_area(profession_data2, 'profession2_data_area.jpg')
+      profession1 = OCR.extract_arabic_text(profession_data1)
+      profession2 = OCR.extract_arabic_text(profession_data2)
+      profession=profession1+" "+profession2   
     
-      # Extract gender data
-      gender,g=self.find_gender(compinedtext)
-      print (gender,g)
-      # Extract marital status data
-      marital_status=self.find_Mstatus(compinedtext,g)
-      # Extract End data
-      enddate_data = self.extract_data_area(25.0, 23.0, 20.0, 39.0)
-      self.save_data_area(enddate_data, 'enddate_data_area.jpg')
-      enddate = OCR.extract_arabic_text('enddate_data_area.jpg')
+      # Extract religion data
+      religion_data = self.extract_data_area(16.0, 33.0, 45.0, 30.0)
+      gender_data =self.extract_data_area(16.0, 33.0, 60.0, 16.5)
+      Mstatus_Data=self.extract_data_area(16.0, 33.0, 20.0, 45.0)
+      self.save_data_area(religion_data, 'religion_data.jpg')
+      self.save_data_area(Mstatus_Data, 'Mstatus_Data.jpg')
+      self.save_data_area(gender_data, 'gender_data.jpg')
+      CompinedDataArea = self.extract_data_area(16.0, 32.0, 20.0, 30.0)   
+      CompinedDataArea2 = self.extract_data_area(16.0, 32.0, 45.0, 16.5)    
+ 
+      self.save_data_area(CompinedDataArea, 'CompinedDataArea.jpg')
+      self.save_data_area(CompinedDataArea2, 'CompinedDataArea2.jpg')
+
+      combined=self.reduce_black_space('CompinedDataArea.jpg')
+      combined2=self.reduce_black_space('CompinedDataArea2.jpg')
+
+      self.save_data_area(combined, 'combinedCropedarea.jpg')
+      self.save_data_area(combined2, 'combinedCropedarea2.jpg')
+
+      compinedtext = OCR.extract_arabic_text(combined)
+      compinedtext2 = OCR.extract_arabic_text(combined2)
+      print('compinedtext2', compinedtext2)
+
+      print('compinedtext', compinedtext)
+      religion=OCR.extract_arabic_text(religion_data)   
+      print('religion',religion)
+      gender=OCR.extract_arabic_text(gender_data)
+      print('gender',gender)
+      marital_status=OCR.extract_arabic_text(Mstatus_Data)
+      print('Mstatus',marital_status)
+      genderChar=None
+      Religion=self.find_religion(All_ocr)
+      Gender,genderChar=self.find_gender(All_ocr)
+      Mstatus=self.find_Mstatus(All_ocr,genderChar)
+      if Religion is None:
+         Religion=self.find_religion(compinedtext)
+      if Gender is None:
+         Gender,genderChar=self.find_gender(compinedtext)
+      if Mstatus is None:
+         Mstatus=self.find_Mstatus(compinedtext,genderChar)   
+
+      if Religion is None:
+         Religion=self.find_religion(compinedtext2)
+      if Gender is None:
+         Gender,genderChar=self.find_gender(compinedtext2)
+      if Mstatus is None:
+         Mstatus=self.find_Mstatus(compinedtext2,genderChar)   
+         
+      if Religion is None:
+         Religion=self.find_religion(religion)    
+      if Gender is None:
+         Gender,genderChar=self.find_gender(gender)
+      if Mstatus is None:
+         Mstatus=self.find_Mstatus(marital_status,genderChar)  
+
+      enddate=self.extractEndDate(All_ocr)
 
       # Extract husband's name data
-      husband_name_data = self.extract_data_area(25.0, 20.0, 30.0, 2.0)
+      husband_name_data = self.extract_data_area(20.0, 30.0, 30.0, 2.0)
       self.save_data_area(husband_name_data, 'husband_name_data_area.jpg')
-      husband_name = OCR.extract_arabic_text('husband_name_data_area.jpg')
+      husband_name = OCR.extract_arabic_text(husband_name_data)
     
       # Store data in a dictionary
       data = {
         'profession': profession,
-        'religion': religion,
-        'gender': gender,
-        'marital_status': marital_status,
+        'religion': Religion,
+        'gender': Gender,
+        'marital_status': Mstatus,
         'enddate': enddate,
         'husband_name': husband_name
       }
@@ -256,3 +393,5 @@ class CardExtractor:
       return json_data
 
 
+    
+       

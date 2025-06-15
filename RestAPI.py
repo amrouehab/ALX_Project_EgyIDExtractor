@@ -14,29 +14,68 @@ def preprocess_image(card_image,char):
      # Convert the image to grayscale
     gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
     trsh=0
-    # Apply Otsu's thresholding
     if char=='F':
-        trsh=255
+        trsh=90
     elif char=='B':
-        trsh=120     
-    _, thresh = cv2.threshold(gray, trsh, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    
-    # Apply morphological operations to enhance text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    processed_image = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)    
-    return processed_image
+        trsh=80     
+    _, thresh = cv2.threshold(gray, trsh, 255, cv2.THRESH_BINARY_INV + cv2.ADAPTIVE_THRESH_MEAN_C)
+      
+    return thresh
 # Function to preprocess the image
-def preprocess_image2(image,threshold):
-  # Convert the image to grayscale
-    grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # Increase the threshold value
-    increased_threshold = threshold
-    _, binary_image = cv2.threshold(grayscale_image, increased_threshold, 255, cv2.THRESH_BINARY_INV)
-     # Apply morphological operations to enhance text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4))
-    processed_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)    
-    return processed_image
-def extract_largest_contour(image,char):
+def deskew(image):
+    # Convert the image to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Threshold the image
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    
+    # Find contours
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Get the orientation of the object
+    angle = 0.0
+    if len(contours) > 0:
+        rect = cv2.minAreaRect(contours[0])
+        angle = rect[2]
+        
+    # Correct skew angle
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+    
+    # Perform rotation
+    h, w = image.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    
+    return rotated
+def extract_id_card_From_ScannerImage(image):
+    # Convert image to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Apply Canny edge detection
+    edges = cv2.Canny(gray, 50, 150)
+
+    # Find contours
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Filter contours based on area and aspect ratio
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        x, y, w, h = cv2.boundingRect(contour)
+        aspect_ratio = float(w) / h
+        
+        # Assuming the ID card has a certain aspect ratio and area
+        if 1.2 < aspect_ratio < 1.8 and area > 5000:
+            # Extract the ID card region
+            id_card = image[y:y+h, x:x+w]
+            return id_card
+
+    # If no ID card contour found, return None
+    return None
+def extract_largest_contour(image):
     # Step 3: Detect contours
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
     _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY)   
@@ -57,10 +96,13 @@ def extract_largest_contour(image,char):
     # Step 8: Return the new image
     return new_image
 
-def BeginProcessing(image,char):
+def BeginProcessing(image,char,scantype):
     try:
      # Detect the card in the input image
-        card = extract_largest_contour(image,char)   
+        if scantype == "Scanner":
+            card = extract_id_card_From_ScannerImage(image)
+        else:
+            card = extract_largest_contour(image)   
         # Save the detected card as a new image
         if char == 'F':
          cv2.imwrite('Frontdetected_card.jpg', card)
@@ -71,7 +113,7 @@ def BeginProcessing(image,char):
         else:
             raise ValueError("Invalid character provided. Please provide 'F' for front ID data or 'B' for back ID data.")    
         print("Card detected")
-        processed=preprocess_image2(card,80)
+        processed=preprocess_image(card,char)
         print("processed")
         cv2.imwrite('processd_id.jpg', processed)
         IDExtractor= CardExtractor('processd_id.jpg')
@@ -98,7 +140,7 @@ def recognize_text(char):
     try:
         # Read the image file directly using OpenCV
         image = cv2.imdecode(np.fromstring(image_file.read(), np.uint8), cv2.IMREAD_COLOR)
-        retMesage=BeginProcessing(image,char)   
+        retMesage=BeginProcessing(image,char,"Image")   
         return retMesage
     except Exception as e:
         print("Error", e.message)
@@ -212,7 +254,8 @@ def check_file_presence(dirpath, char, result_queue):
                     print("File found: " + file_path)
                     # Pass the file path to the other function for processing
                     image = cv2.imread(file_path, cv2.IMREAD_ANYCOLOR)
-                    retMesage=BeginProcessing(image,char)   
+                    inverted_image = 255 - image
+                    retMesage=BeginProcessing(image,char,"Scanner")   
                     result_queue.put(retMesage)
                     
                     return retMesage
