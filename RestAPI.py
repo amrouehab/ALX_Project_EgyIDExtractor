@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from PIL import Image
 import cv2
 import numpy as np
 from IDCroper  import CardExtractor
@@ -7,20 +6,58 @@ from  DBHelper import SQLDatabase
 import os,threading,time
 import json
 import queue
-
+selectedtresh=0
 app = Flask(__name__)
+def find_and_draw_lines(image):
+    # Get image dimensions
+    height, width = image.shape[:2]
 
-def preprocess_image(card_image,char):
+    # Find horizontal line
+    horizontal_line_y = None
+    for y in range(height):
+        for x in range(width):
+            # Check if pixel is black
+            if image[y, x] == 0:
+                horizontal_line_y = y
+                break
+        if horizontal_line_y is not None:
+            break
+
+    # Draw horizontal line if found
+    if horizontal_line_y is not None:
+        cv2.line(image, (0, horizontal_line_y), (width - 1, horizontal_line_y), (255, 255, 255), 1)
+
+    # Find vertical line
+    vertical_line_x = None
+    for x in range(width):
+        for y in range(height):
+            # Check if pixel is black
+            if image[y, x] == 0:
+                vertical_line_x = x
+                break
+        if vertical_line_x is not None:
+            break
+
+    # Draw vertical line if found
+    if vertical_line_x is not None:
+        cv2.line(image, (vertical_line_x, 0), (vertical_line_x, height - 1), (255, 255, 255), 1)
+
+    return image
+def preprocess_image(card_image,char,scantype,tresh):
      # Convert the image to grayscale
+    tresh=int(tresh)
     gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
-    trsh=0
-    if char=='F':
-        trsh=90
-    elif char=='B':
-        trsh=80     
-    _, thresh = cv2.threshold(gray, trsh, 255, cv2.THRESH_BINARY_INV + cv2.ADAPTIVE_THRESH_MEAN_C)
-      
-    return thresh
+    if scantype == "Scanner":
+        trsh=145
+    else:
+        trsh=120
+
+    if char=='B':
+        trsh=trsh-10     
+    _, thresh = cv2.threshold(gray, tresh, 255, cv2.THRESH_BINARY_INV + cv2.ADAPTIVE_THRESH_MEAN_C)
+    final_image = cv2.bitwise_not(thresh)
+ 
+    return final_image
 # Function to preprocess the image
 def deskew(image):
     # Convert the image to grayscale
@@ -54,27 +91,50 @@ def deskew(image):
 def extract_id_card_From_ScannerImage(image):
     # Convert image to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+   # Load the original image
+    original_image = image
+
+    # Define the kernel for morphological operations
+    kernel = np.ones((5, 5), np.uint8)
+
+    # Perform dilation
+    dilated_image = cv2.dilate(original_image, kernel, iterations=1)
+
+    # Perform erosion
+    eroded_image = cv2.erode(original_image, kernel, iterations=1)
+
+    # Calculate the morphological gradient (difference between dilation and erosion)
+    morphological_gradient = cv2.subtract(dilated_image, eroded_image)
+
+    # Save the result
+    cv2.imwrite('morphological_gradient.jpg', morphological_gradient)
+        
+    edges = cv2.Canny(morphological_gradient, 50, 150)
 
     # Apply Canny edge detection
-    edges = cv2.Canny(gray, 50, 150)
+    kernel = np.ones((7, 7), np.uint8)  # Long horizontal line kernel
+    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+    cv2.imwrite('dilated_edges.jpg', dilated_edges)
+
+    # Thresholding (if necessary)
+    _, edges = cv2.threshold(dilated_edges, 100, 255, cv2.THRESH_BINARY)
 
     # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    max_area=0
     # Filter contours based on area and aspect ratio
     for contour in contours:
         area = cv2.contourArea(contour)
         x, y, w, h = cv2.boundingRect(contour)
         aspect_ratio = float(w) / h
-        
         # Assuming the ID card has a certain aspect ratio and area
-        if 1.2 < aspect_ratio < 1.8 and area > 5000:
-            # Extract the ID card region
-            id_card = image[y:y+h, x:x+w]
-            return id_card
+        if 0.6< aspect_ratio < 2.7 and area > 8000: 
+             if area > max_area:
+                 max_area = area
+                 id_card = image[y:y+h, x:x+w]
 
     # If no ID card contour found, return None
-    return None
+    return id_card
 def extract_largest_contour(image):
     # Step 3: Detect contours
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
@@ -96,13 +156,13 @@ def extract_largest_contour(image):
     # Step 8: Return the new image
     return new_image
 
-def BeginProcessing(image,char,scantype):
+def BeginProcessing(image,char,scantype,tresh):
     try:
      # Detect the card in the input image
         if scantype == "Scanner":
-            card = extract_id_card_From_ScannerImage(image)
+             card = extract_id_card_From_ScannerImage(image)
         else:
-            card = extract_largest_contour(image)   
+             card = extract_largest_contour(image)   
         # Save the detected card as a new image
         if char == 'F':
          cv2.imwrite('Frontdetected_card.jpg', card)
@@ -113,10 +173,10 @@ def BeginProcessing(image,char,scantype):
         else:
             raise ValueError("Invalid character provided. Please provide 'F' for front ID data or 'B' for back ID data.")    
         print("Card detected")
-        processed=preprocess_image(card,char)
+        processed=preprocess_image(card,char,scantype,tresh)
         print("processed")
         cv2.imwrite('processd_id.jpg', processed)
-        IDExtractor= CardExtractor('processd_id.jpg')
+        IDExtractor= CardExtractor(processed,card)
         print("IDExtractor" +char)
         if char=='F':
             jsonstring=IDExtractor.getFront_IDData()
@@ -131,30 +191,28 @@ def BeginProcessing(image,char,scantype):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/recognize-text/<char>', methods=['POST'])
-def recognize_text(char):
+@app.route('/recognize-text/<char>/<int:threshold>', methods=['POST'])
+def recognize_text(char, threshold):
     if 'image' not in request.files:
         return jsonify({'error': 'No image sent'}), 400
-    
     image_file = request.files['image']   
     try:
         # Read the image file directly using OpenCV
         image = cv2.imdecode(np.fromstring(image_file.read(), np.uint8), cv2.IMREAD_COLOR)
-        retMesage=BeginProcessing(image,char,"Image")   
-        return retMesage
+        retMessage = BeginProcessing(image, char, "Image", threshold)   
+        return retMessage
     except Exception as e:
         print("Error", e.message)
         return jsonify({'error': str(e)}), 500
+
     
 @app.route('/save', methods=['POST'])
 def save_to_database():
     try:
         # Extract JSON data from the request
-        record = request.get_json()
-        
+        record = request.get_json()        
         # Call the SaveTODataBase function
-        success, message = SaveTODataBase(record)
-        
+        success, message = SaveTODataBase(record)     
         if success:
             return jsonify({'message': message}), 200
         else:
@@ -199,6 +257,9 @@ def SaveTODataBase(record):
         return True, "Data saved successfully"
     except Exception as e:
         return False, str(e)
+@app.route('/')
+def home():
+    return "OCR Server is running..."
 
 @app.route('/check-file/', methods=['POST'])
 def check_file():
@@ -217,7 +278,8 @@ def check_file():
 
     directory_path = data_dict['directory_path']
     side=data_dict['side']
-
+    tresh=data_dict['treshold']
+    print(tresh)
     if not os.path.isabs(directory_path):
         print("Directory path must be absolute")
         return jsonify({'error': 'Directory path must be absolute'}), 400
@@ -227,7 +289,7 @@ def check_file():
     # Create a queue to store the result from the thread
     result_queue = queue.Queue()
     # Start a new thread to check for file presence
-    thread = threading.Thread(target=check_file_presence, args=(directory_path,side,result_queue))
+    thread = threading.Thread(target=check_file_presence, args=(directory_path,side,tresh,result_queue))
     thread.start()
     print("thread started")
 
@@ -236,12 +298,13 @@ def check_file():
     # Check if there's a result in the queue
     if not result_queue.empty():     
         result = result_queue.get()
+        
         return result[0], result[1]
     else:
         return jsonify({'thread_started': True, 'result': "No result from thread"}), 200
 
  #Function to check for the presence of the  scanner image in a specific path 
-def check_file_presence(dirpath, char, result_queue):
+def check_file_presence(dirpath, char,tresh, result_queue):
     timeout = 10  # Timeout in seconds
     start_time = time.time()
 
@@ -254,8 +317,8 @@ def check_file_presence(dirpath, char, result_queue):
                     print("File found: " + file_path)
                     # Pass the file path to the other function for processing
                     image = cv2.imread(file_path, cv2.IMREAD_ANYCOLOR)
-                    inverted_image = 255 - image
-                    retMesage=BeginProcessing(image,char,"Scanner")   
+                    print(tresh)
+                    retMesage=BeginProcessing(image,char,"Scanner",tresh)   
                     result_queue.put(retMesage)
                     
                     return retMesage
@@ -264,5 +327,7 @@ def check_file_presence(dirpath, char, result_queue):
     result_queue.put("Error checking directory")
     return "Error checking directory"
 
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True)

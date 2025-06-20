@@ -1,13 +1,14 @@
 import cv2
 import json
 from OCRExtractor import OCREngine
-import datetime
 import re
 import numpy as np
+import base64
 
 class CardExtractor:
-    def __init__(self, card_image_path):
-        self.card_image = cv2.imread(card_image_path)
+    def __init__(self, Graycard_image,RGBCardImage):
+        self.card_image = Graycard_image
+        self.RGBCard=RGBCardImage
         self.card_width_mm = 85.6
         self.card_height_mm = 54.0
         self.pixels_per_mm_width = self.card_image.shape[1] / self.card_width_mm
@@ -42,13 +43,15 @@ class CardExtractor:
 
       return sentence_image
 
-    def extract_data_area(self, dataTop, dataBottom, dataLeft, dataRight):
+    def extract_data_area(self, dataTop, dataBottom, dataLeft, dataRight, mode="Gray"):
         top = int(dataTop * self.pixels_per_mm_height)
         bottom = self.card_image.shape[0] - int(dataBottom * self.pixels_per_mm_height)
         left = int(dataLeft * self.pixels_per_mm_width)
         right = self.card_image.shape[1] - int(dataRight * self.pixels_per_mm_width)
-        data_area = self.card_image[top:bottom, left:right]
-        return data_area
+        if mode == "RGB":
+            return self.RGBCard[top:bottom, left:right]
+        
+        return self.card_image[top:bottom, left:right]
 
     def save_data_area(self, data_area, output_path):
         cv2.imwrite(output_path, data_area)
@@ -87,15 +90,22 @@ class CardExtractor:
         ID=self.extractID(OCR)      
         DOB = self.extract_date_from_id(ID)
 
-        face_data = self.extract_data_area(5.0, 20.0, 2.0, 60.0)
+        face_data = self.extract_data_area(5.0, 20.0, 2.0, 60.0,"RGB")
         self.save_data_area(face_data, 'face_data_area.jpg')
+        # Convert the image to base64
+        _, buffer = cv2.imencode('.jpg', self.RGBCard)
+        encoded_image = base64.b64encode(buffer).decode('utf-8')
+        _, buffer = cv2.imencode('.jpg', face_data)
+        encoded_face = base64.b64encode(buffer).decode('utf-8')
 
         # Store data in a dictionary
         data = {
             "name": name,
             "address": address,
             "ID": ID,
-            "DOB": DOB
+            "DOB": DOB,
+            "image": encoded_image,
+            "face": encoded_face
         }
 
         # Convert dictionary to JSON string
@@ -119,7 +129,7 @@ class CardExtractor:
       # Return the date as a datetime object
       return  f"{year}-{month:02d}-{day:02d}" 
     
-    def find_religion(self, text):
+    def find_religion(self, text,gender):
        try:
         # Define regular expressions for the words "مسلم" and "مسيحي"
         muslim_pattern = re.compile(r'مسلم', re.IGNORECASE)
@@ -131,9 +141,15 @@ class CardExtractor:
             christian_match = christian_pattern.search(line)
             # Return the appropriate word if found in the text
             if muslim_match:
-                return "مسلم"
+                if gender == 'm':
+                    return "مسلم"
+                elif gender == 'f':
+                    return "مسلمة"
             elif christian_match:
-                return "مسيحي"
+                if gender == 'm':
+                    return "مسيحي"
+                elif gender == 'f':
+                    return "مسيحية"
         
         # If no match found in any line, return None
         return None
@@ -169,7 +185,7 @@ class CardExtractor:
         # Define regular expression patterns for male and female genders
         male_patterns = [
             re.compile(r'ذكر'),
-            re.compile(r'ذكرى'),
+            re.compile(r'ذ كر'),
             re.compile(r'دكري'),
             re.compile(r'دكر')
         ]
@@ -178,6 +194,7 @@ class CardExtractor:
             re.compile(r'أنثى'),
             re.compile(r'أنتى'),
             re.compile(r'انتى'),
+            re.compile(r'آنثى'),
             re.compile(r'انثى')
         ]
 
@@ -238,7 +255,7 @@ class CardExtractor:
                 re.compile(r'أرمل'),
                 re.compile(r'ارمل'),
             ]
-        else:
+        elif gender=='f':
             single_patterns = [
                 re.compile(r'عزباء'),
                 re.compile(r'عزب'),  # Include optional ending for male gender
@@ -266,29 +283,38 @@ class CardExtractor:
             for pattern in single_patterns:
                 single_match = pattern.search(line)
                 if single_match:
-                    print("Matched text (Single):", single_match.group())
-                    return "أعزب" if gender == 'm' else "عزباء"
+                    if gender == 'm':
+                        print("Matched text:", single_match.group(),"gender="+gender)
+                        return "أعزب"  
+                    elif gender == 'f':
+                        return "عزباء"
 
             # Search for married patterns
             for pattern in married_patterns:
                 married_match = pattern.search(line)
                 if married_match:
-                    print("Matched text (Married):", married_match.group())
-                    return "متزوج" if gender == 'm' else "متزوجة"
+                    if gender == 'm':
+                       return "متزوج" 
+                    elif gender == 'f':
+                       return "متزوجة"
 
             # Search for divorced patterns
             for pattern in divorced_patterns:
                 divorced_match = pattern.search(line)
                 if divorced_match:
-                    print("Matched text (Divorced):", divorced_match.group())
-                    return "مطلق" if gender == 'm' else "مطلقة"
+                  if gender == 'm':
+                       return "مطلق"
+                  elif gender == 'f':
+                       return "مطلقة"
 
             # Search for widower patterns
             for pattern in widower_patterns:
                 widower_match = pattern.search(line)
                 if widower_match:
-                    print("Matched text (Widower):", widower_match.group())
-                    return "أرمل" if gender == 'm' else "أرملة"
+                    if gender == 'm':
+                       return "أرمل"
+                    elif gender == 'f':
+                       return "أرملة"
 
         # If no match found, return None
         return None
@@ -297,8 +323,8 @@ class CardExtractor:
         return None
     def getBack_IDData(self):
       OCR = OCREngine()
-      All_data = self.extract_data_area(7.7, 22.0, 20.0, 16.0)
-      self.save_data_area(All_data, 'profession1_data_area.jpg')
+      All_data = self.extract_data_area(7.7, 22.0, 20.0, 17.0)
+      self.save_data_area(All_data, 'All_data_area.jpg')
       All_ocr = OCR.extract_arabic_text(All_data)
       # Specify the file path where you want to save the text file
       file_path = "rtl_text.txt"
@@ -307,8 +333,8 @@ class CardExtractor:
         file.write(All_ocr)
 
       # Extract profession data
-      profession_data1 = self.extract_data_area(7.7, 42.0, 20.0, 16.0)
-      profession_data2= self.extract_data_area(12.0, 37.0, 20.0, 16.0)
+      profession_data1 = self.extract_data_area(7.7, 42.0, 20.0, 17.0)
+      profession_data2= self.extract_data_area(12.0, 37.0, 20.0, 17.0)
 
       self.save_data_area(profession_data1, 'profession1_data_area.jpg')
       self.save_data_area(profession_data2, 'profession2_data_area.jpg')
@@ -346,38 +372,43 @@ class CardExtractor:
       print('gender',gender)
       marital_status=OCR.extract_arabic_text(Mstatus_Data)
       print('Mstatus',marital_status)
-      genderChar=None
-      Religion=self.find_religion(All_ocr)
+      genderChar='m'
       Gender,genderChar=self.find_gender(All_ocr)
-      Mstatus=self.find_Mstatus(All_ocr,genderChar)
-      if Religion is None:
-         Religion=self.find_religion(compinedtext)
       if Gender is None:
          Gender,genderChar=self.find_gender(compinedtext)
-      if Mstatus is None:
-         Mstatus=self.find_Mstatus(compinedtext,genderChar)   
-
-      if Religion is None:
-         Religion=self.find_religion(compinedtext2)
       if Gender is None:
-         Gender,genderChar=self.find_gender(compinedtext2)
-      if Mstatus is None:
-         Mstatus=self.find_Mstatus(compinedtext2,genderChar)   
-         
-      if Religion is None:
-         Religion=self.find_religion(religion)    
+         Gender,genderChar=self.find_gender(compinedtext2)   
       if Gender is None:
          Gender,genderChar=self.find_gender(gender)
+      Religion=self.find_religion(All_ocr,genderChar)
+      if Religion is None:
+         Religion=self.find_religion(compinedtext,genderChar)
+      if Religion is None:
+         Religion=self.find_religion(compinedtext2,genderChar)   
+      if Religion is None:
+         Religion=self.find_religion(religion,genderChar)       
+      Mstatus=self.find_Mstatus(All_ocr,genderChar) 
+      if Mstatus is None:
+         Mstatus=self.find_Mstatus(compinedtext,genderChar)   
+      if Mstatus is None:
+         Mstatus=self.find_Mstatus(compinedtext2,genderChar)   
       if Mstatus is None:
          Mstatus=self.find_Mstatus(marital_status,genderChar)  
 
       enddate=self.extractEndDate(All_ocr)
+      if genderChar == 'f':
+        # Extract husband's name data
+        husband_name_data = self.extract_data_area(20.1, 29.0, 30.0, 16.5)
+        self.save_data_area(husband_name_data, 'husband_name_data_area.jpg')
+        husband_name = OCR.extract_arabic_text(husband_name_data)
+      else :
+        husband_name = ' '  
 
-      # Extract husband's name data
-      husband_name_data = self.extract_data_area(20.0, 30.0, 30.0, 2.0)
-      self.save_data_area(husband_name_data, 'husband_name_data_area.jpg')
-      husband_name = OCR.extract_arabic_text(husband_name_data)
-    
+      
+      # Convert the image to base64
+      _, buffer = cv2.imencode('.jpg', self.RGBCard)
+      encoded_image = base64.b64encode(buffer).decode('utf-8')
+      print(husband_name)
       # Store data in a dictionary
       data = {
         'profession': profession,
@@ -385,7 +416,8 @@ class CardExtractor:
         'gender': Gender,
         'marital_status': Mstatus,
         'enddate': enddate,
-        'husband_name': husband_name
+        'husband_name': husband_name,
+        'image': encoded_image,
       }
 
       # Convert dictionary to JSON string

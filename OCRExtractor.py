@@ -6,12 +6,12 @@ class OCREngine:
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
     def extract_arabic_text(self, image):
-        text = pytesseract.image_to_string(image, lang='ara-Amiri')    
+        text = pytesseract.image_to_string(image, lang='ara-amiri-3000')    
         return text
     def extract_arabic_textFromImagPath(self, image_path):
         # Load the image
         image = Image.open(image_path)
-        text = pytesseract.image_to_string(image, lang='ara-Amiri')    
+        text = pytesseract.image_to_string(image, lang='ara-amiri-3000')    
         return text
     def extract_numbers(self,image):
         # Perform OCR on the image
