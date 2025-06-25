@@ -84,9 +84,22 @@ class CardExtractor:
 
     def getFront_IDData(self):
         OCR = OCREngine()
-       
-        name =self.extractName(OCR)
-        address = self.extractAddress(OCR)
+        All_data = self.extract_data_area(13.0, 18.0, 30.0, 2.0)
+        self.save_data_area(All_data, 'Allfront_data_area.jpg')
+        all=OCR.extract_arabic_text(All_data)
+        file_path = "rtl_text.txt"
+      # Open the file in write mode ('w') and specify encoding='utf-8' for handling Arabic text
+        with open(file_path, 'w', encoding='utf-8') as file:
+             file.write(all)
+        # Split the text into lines and remove any empty lines
+        lines = [line for line in all.split('\n') if line.strip()]
+        print(lines)
+
+        # Extract the name and address
+        name = lines[0] + ' ' + lines[1]
+        address = lines[2] + ', ' + lines[3]
+        #name =self.extractName(OCR)
+        #address = self.extractAddress(OCR)
         ID=self.extractID(OCR)      
         DOB = self.extract_date_from_id(ID)
 
@@ -115,10 +128,12 @@ class CardExtractor:
   
     def extract_date_from_id(self,id_number):
       # Extract millennium indicator, year, month, and day
-      millennium_indicator = int(str(id_number)[0])
-      year = int(str(id_number)[1:3])
-      month = int(str(id_number)[3:5])
-      day = int(str(id_number)[5:7])
+      id = str(id_number).replace(' ', '')
+      print("ID="+id)
+      millennium_indicator = int(id[0])
+      year = int(id[1:3])
+      month = int(id[3:5])
+      day = int(id[5:7])
       print("MIllinum="+str(millennium_indicator)+"year="+str(year),"month="+str(month), "dat="+str(day))
     
       # Determine the full year based on the millennium indicator
