@@ -94,12 +94,13 @@ class CardExtractor:
         # Split the text into lines and remove any empty lines
         lines = [line for line in all.split('\n') if line.strip()]
         print(lines)
-
-        # Extract the name and address
-        name = lines[0] + ' ' + lines[1]
-        address = lines[2] + ', ' + lines[3]
-        #name =self.extractName(OCR)
-        #address = self.extractAddress(OCR)
+        if len(lines) >= 4:
+            # Extract the name and address
+            name = lines[0] + ' ' + lines[1]
+            address = lines[2] + ', ' + lines[3]
+        else:
+            name =self.extractName(OCR)
+            address = self.extractAddress(OCR)
         ID=self.extractID(OCR)      
         DOB = self.extract_date_from_id(ID)
 
@@ -148,7 +149,7 @@ class CardExtractor:
        try:
         # Define regular expressions for the words "مسلم" and "مسيحي"
         muslim_pattern = re.compile(r'مسلم', re.IGNORECASE)
-        christian_pattern = re.compile(r'مسيحي', re.IGNORECASE)
+        christian_pattern = re.compile(r'مسيحى', re.IGNORECASE)
         # Split the text into lines and iterate through each line
         for line in text.split('\n'):
             # Search for the words in the line
@@ -235,11 +236,42 @@ class CardExtractor:
         print("Error:", e)
         return "", ""
      
-    def extractEndDate(self, text):
-        # Extract the last 10 characters from the string
-        end_date = text[-12:]
-        return end_date 
-    
+    def extractEndDate(self,OCR):
+      enddate_data = self.extract_data_area(25.0, 23.0, 20.0, 40.0)
+      yeardata=self.extract_data_area(25.0, 23.0, 20.0, 50.3)
+      monthdata=self.extract_data_area(25.0, 23.0, 36.0, 45.5)
+      daydata=self.extract_data_area(25.0, 23.0, 41.0, 40.5)
+      self.save_data_area(monthdata, 'monthdata.jpg')
+      month = OCR.extract_numbers(monthdata)
+      monthstr=str(month).strip()
+      self.save_data_area(daydata, 'daydata.jpg')
+      day = OCR.extract_numbers(daydata)
+      daystr=str(day).strip()
+      self.save_data_area(yeardata, 'yeardata.jpg')
+      year = OCR.extract_numbers(yeardata)
+      yearstr=str(year).strip()
+      print("yearstr"+yearstr)
+      print("monthstr"+monthstr)
+      print("daystr"+daystr)
+      if yearstr.__len__() > 4:
+        year = yearstr[0:4]
+      
+      if monthstr.__len__() > 2:
+        month = monthstr[1:3]
+      if daystr.__len__() > 2:
+        day = daystr[1:3]
+      self.save_data_area(enddate_data, 'enddate_data_area.jpg')
+      enddate = str(year)+"-"+str(month)+"-"+str(day)
+      return enddate 
+    def get_last_two_digits(self,number):
+        # Convert the number to a string
+        number_str = str(number)
+        # Get the last two characters
+        if number_str.__len__() > 2:
+            last_two_digits = number_str[1:]
+        else:
+            last_two_digits = number_str
+        return last_two_digits
     def find_Mstatus(self, text, gender):
      try:
         if gender == 'm':
@@ -348,7 +380,7 @@ class CardExtractor:
         file.write(All_ocr)
 
       # Extract profession data
-      profession_data1 = self.extract_data_area(7.7, 42.0, 20.0, 17.0)
+      profession_data1 = self.extract_data_area(7.7, 42.0, 20.0, 16.0)
       profession_data2= self.extract_data_area(12.0, 37.0, 20.0, 17.0)
 
       self.save_data_area(profession_data1, 'profession1_data_area.jpg')
@@ -410,7 +442,8 @@ class CardExtractor:
       if Mstatus is None:
          Mstatus=self.find_Mstatus(marital_status,genderChar)  
 
-      enddate=self.extractEndDate(All_ocr)
+      enddate=self.extractEndDate(OCR)
+
       if genderChar == 'f':
         # Extract husband's name data
         husband_name_data = self.extract_data_area(20.1, 29.0, 30.0, 16.5)
