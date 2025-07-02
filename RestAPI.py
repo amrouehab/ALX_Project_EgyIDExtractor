@@ -88,53 +88,78 @@ def deskew(image):
     rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     
     return rotated
-def extract_id_card_From_ScannerImage(image):
-    # Convert image to grayscale
+
+def CropIDFromScannerImage(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-   # Load the original image
-    original_image = image
+    binary = cv2.bitwise_not(gray)
 
-    # Define the kernel for morphological operations
-    kernel = np.ones((5, 5), np.uint8)
+    (contours, _) = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-    # Perform dilation
-    dilated_image = cv2.dilate(original_image, kernel, iterations=1)
+    max_area = 0
+    max_contour = None
 
-    # Perform erosion
-    eroded_image = cv2.erode(original_image, kernel, iterations=1)
-
-    # Calculate the morphological gradient (difference between dilation and erosion)
-    morphological_gradient = cv2.subtract(dilated_image, eroded_image)
-
-    # Save the result
-    cv2.imwrite('morphological_gradient.jpg', morphological_gradient)
-        
-    edges = cv2.Canny(morphological_gradient, 50, 150)
-
-    # Apply Canny edge detection
-    kernel = np.ones((7, 7), np.uint8)  # Long horizontal line kernel
-    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
-    cv2.imwrite('dilated_edges.jpg', dilated_edges)
-
-    # Thresholding (if necessary)
-    _, edges = cv2.threshold(dilated_edges, 100, 255, cv2.THRESH_BINARY)
-
-    # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    max_area=0
-    # Filter contours based on area and aspect ratio
     for contour in contours:
         area = cv2.contourArea(contour)
-        x, y, w, h = cv2.boundingRect(contour)
-        aspect_ratio = float(w) / h
-        # Assuming the ID card has a certain aspect ratio and area
-        if 0.6< aspect_ratio < 2.7 and area > 8000: 
-             if area > max_area:
-                 max_area = area
-                 id_card = image[y:y+h, x:x+w]
+        if area > max_area:
+            max_area = area
+            max_contour = contour
 
-    # If no ID card contour found, return None
-    return id_card
+    if max_contour is not None:
+        (x, y, w, h) = cv2.boundingRect(max_contour)
+        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        
+        cropped_image = image[y:y + h, x:x + w]
+        cv2.imwrite('detected_card.jpg', image)
+        cv2.imwrite('cropped_id_card.jpg', cropped_image)
+        
+        return cropped_image
+    else:
+        print("No contours found.")
+        return None
+
+def rotate_image(image, angle):
+    (h, w) = image.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated = cv2.warpAffine(image, M, (w, h))
+    return rotated
+def match_template(template, image_gray):
+    best_match = None
+    best_value = -1
+    best_angle = 0
+    for angle in range(0, 360, 15):  # Rotate the template from 0 to 345 degrees in steps of 15
+        rotated_template = rotate_image(template, angle)
+        result = cv2.matchTemplate(image_gray, rotated_template, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+        if max_val > best_value:
+            best_value = max_val
+            best_match = max_loc
+            best_template = rotated_template
+            best_angle = angle
+    return best_match, best_template.shape[::-1], best_angle
+def draw_rectangle(image, top_left, width_height):
+    bottom_right = (top_left[0] + width_height[1], top_left[1] + width_height[0])
+    cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)
+    return image, bottom_right
+
+def crop_region(image, top_left, bottom_right):
+    return image[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
+
+def extract_id_card_From_ScannerImage(image):
+    template_path = r'Test\template.jpg'  # Update this path
+    template_image = cv2.imread(template_path)
+    template_gray = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
+    # Convert image to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Match template
+    top_left, template_size, best_angle = match_template(template_gray, gray)
+   # Draw rectangle around matched region
+    scanned_image_with_rect, bottom_right = draw_rectangle(image, top_left, template_size)
+    cv2.imwrite('scanned_image_with_rect.jpg', scanned_image_with_rect)
+    # Crop the matched region
+    cropped_id_card = crop_region(image, top_left, bottom_right)
+
+    return cropped_id_card
 def extract_largest_contour(image):
     # Step 3: Detect contours
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
@@ -160,7 +185,9 @@ def BeginProcessing(image,char,scantype,tresh):
     try:
      # Detect the card in the input image
         if scantype == "Scanner":
-             card = extract_id_card_From_ScannerImage(image)
+             card = CropIDFromScannerImage(image)
+             if card is None:
+                card = extract_id_card_From_ScannerImage(image)
         else:
              card = extract_largest_contour(image)   
         # Save the detected card as a new image
@@ -330,4 +357,4 @@ def check_file_presence(dirpath, char,tresh, result_queue):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
