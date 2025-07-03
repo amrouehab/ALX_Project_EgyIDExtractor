@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+pyvenv.cfg
+Lib/
+Scripts/
+Include/
+pip-selfcheck.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Configuration files that might contain sensitive info
+*.config
+web.config
+
+# Temporary files
+*.tmp
+*.temp
+Lib/site-packages/colorama/__pycache__/__init__.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/__init__.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/ansi.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/ansitowin32.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/initialise.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/win32.cpython-312.pyc
+Lib/site-packages/colorama/__pycache__/winterm.cpython-312.pyc
+Lib/site-packages/win32/lib/__pycache__/pywin32_bootstrap.cpython-312.pyc
+*.pyc
