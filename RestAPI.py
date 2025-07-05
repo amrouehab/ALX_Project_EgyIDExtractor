@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import cv2
 import numpy as np
 from IDCroper  import CardExtractor
@@ -6,8 +7,10 @@ from  DBHelper import SQLDatabase
 import os,threading,time
 import json
 import queue
-selectedtresh=0
+import uuid
+
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 def find_and_draw_lines(image):
     # Get image dimensions
     height, width = image.shape[:2]
@@ -88,7 +91,28 @@ def deskew(image):
     rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     
     return rotated
+def correct_skew(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+        rect = cv2.minAreaRect(largest_contour)
+        angle = rect[-1]
+
+        if angle < -45:
+            angle = -(90 + angle)
+        else:
+            angle = -angle
+
+        (h, w) = image.shape[:2]
+        center = (w // 2, h // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        corrected_image = cv2.warpAffine(image, rotation_matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        return corrected_image
+    else:
+        return image
 def CropIDFromScannerImage(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     binary = cv2.bitwise_not(gray)
@@ -189,7 +213,7 @@ def BeginProcessing(image,char,scantype,tresh):
              if card is None:
                 card = extract_id_card_From_ScannerImage(image)
         else:
-             card = extract_largest_contour(image)   
+             card = CropIDFromScannerImage(image)   
         # Save the detected card as a new image
         if char == 'F':
          cv2.imwrite('Frontdetected_card.jpg', card)
@@ -214,7 +238,7 @@ def BeginProcessing(image,char,scantype,tresh):
         
         return jsonstring, 200
     except Exception as e:
-        print("Error", e.message)
+        print("Error", str(e))
         return jsonify({'error': str(e)}), 500
 
 
@@ -225,19 +249,20 @@ def recognize_text(char, threshold):
     image_file = request.files['image']   
     try:
         # Read the image file directly using OpenCV
-        image = cv2.imdecode(np.fromstring(image_file.read(), np.uint8), cv2.IMREAD_COLOR)
+        image = cv2.imdecode(np.frombuffer(image_file.read(), np.uint8), cv2.IMREAD_COLOR)
         retMessage = BeginProcessing(image, char, "Image", threshold)   
+        SaveImageToSavingDir(image)
         return retMessage
     except Exception as e:
-        print("Error", e.message)
+        print("Error", str(e))
         return jsonify({'error': str(e)}), 500
 
     
-@app.route('/save', methods=['POST'])
+@app.route('/save/', methods=['POST'])
 def save_to_database():
     try:
         # Extract JSON data from the request
-        record = request.get_json()        
+        record = request.get_json()  
         # Call the SaveTODataBase function
         success, message = SaveTODataBase(record)     
         if success:
@@ -245,52 +270,82 @@ def save_to_database():
         else:
             return jsonify({'error': message}), 500
     except Exception as e:
+        print(e)
         return jsonify({'error': str(e)}), 500    
-    
+def SaveImageToSavingDir(image):
+    try:
+        config_result = ReadConfig()
+        if config_result is None:
+            print("Warning: Config file not found. Skipping image save.")
+            return
+        savepath, b, f = config_result
+        # Generate a GUID
+        image_name = str(uuid.uuid4()) + '.jpg'
+        # Define the path
+        path = os.path.join(savepath, image_name)
+        # Save the image
+        cv2.imwrite(path, image)
+        print(f"Image saved to: {path}")
+    except Exception as e:
+        print(f"Error saving image: {str(e)}")
+        # Don't fail the whole request if image saving fails
+
 def SaveTODataBase(record):
     try:
         # Get database connection parameters from environment variables
-        server = os.getenv('DATABASE_SERVER_IP', 'default_server_ip')
-        database = os.getenv('DATABASE_NAME', 'default_database_name')
-        username = os.getenv('DATABASE_USERNAME', 'default_username')
-        password = os.getenv('DATABASE_PASSWORD', 'default_password')
+        server = r"AMRO-PC\SQLEXPRESS"  # The 'r' before the string allows backslashes to be used as literal characters
+        database = "IDExteactor"
+        print("database")
 
         # Initialize SQLDatabase object
-        db = SQLDatabase(server=server,
-                         database=database,
-                         username=username,
-                         password=password)
-        
+        db = SQLDatabase(
+            server=server,
+            database=database
+        )      
+
         # Check if database connection is already established
         if not db.connection:
             # Connect to the database
             db.connect()
-        
-        # Check if the database exists
-        if not db.database_exists(database):
-            # Create the database
-            db.create_database(database)
 
+        # Check if the database exists
+        if not db.database_exists():
+            # Create the database (ensure this method is implemented if needed)
+            # db.create_database(database)
+            raise NotImplementedError("create_database method is not implemented.")
+
+        print("All before creating table")
         # Check if table exists
-        table_name = 'IDs'  # Adjust table name accordingly
+        table_name = 'dbo.IDSamples'  # Adjust table name accordingly
         if not db.table_exists(table_name):
-            # Create a table (assuming record provides column names)
-            columns = record.keys()
+            # Create a table (assuming record provides column names and data types)
+            columns = {col: 'VARCHAR(MAX)' for col in record.keys()}  # Example: Adjust data types as needed
+            print(f"Creating table {table_name} with columns: {columns}")
             db.create_table(table_name, columns)
+            print(f"Table {table_name} created successfully.")
 
         # Insert record
+        print("Inserting record:", record)
         db.insert_record(table_name, record)
+        print("Record inserted successfully.")
 
         return True, "Data saved successfully"
     except Exception as e:
+        print(e)
         return False, str(e)
+
+
 @app.route('/')
 def home():
     return "OCR Server is running..."
 
 @app.route('/check-file/', methods=['POST'])
 def check_file():
-    print(request)
+    config_result = ReadConfig()
+    if config_result is None:
+        return jsonify({'error': 'Configuration file not found. Please set up configuration first.'}), 400
+    
+    savepath, backpath, frontpath = config_result
     data = request.data.decode('utf-8')
     print("Data received:", data)  # Add this line to print the received data
     try:
@@ -299,12 +354,16 @@ def check_file():
         print("JSON decoding error:", e)
         return jsonify({'error': 'Invalid JSON data'}), 400
     
-    if 'directory_path'  not in data_dict or  'side' not in data_dict:
+    if 'side' not in data_dict:
         print("no data found")
-        return jsonify({'error': 'Directory path not provided in the request body'}), 400
-
-    directory_path = data_dict['directory_path']
+        return jsonify({'error': 'the side is not provided in the request body'}), 400
     side=data_dict['side']
+    if side == 'F':
+        directory_path = frontpath
+    elif side =='B':
+        directory_path=backpath  
+    else:
+        directory_path = ""
     tresh=data_dict['treshold']
     print(tresh)
     if not os.path.isabs(directory_path):
@@ -319,7 +378,6 @@ def check_file():
     thread = threading.Thread(target=check_file_presence, args=(directory_path,side,tresh,result_queue))
     thread.start()
     print("thread started")
-
     thread.join()
     print("thread finished")
     # Check if there's a result in the queue
@@ -334,12 +392,11 @@ def check_file():
 def check_file_presence(dirpath, char,tresh, result_queue):
     timeout = 10  # Timeout in seconds
     start_time = time.time()
-
     while time.time() - start_time < timeout:
         if os.path.exists(dirpath):
             files = os.listdir(dirpath)
-            for file in files:
-                file_path = os.path.join(dirpath, file)
+            if len(files) >0:
+                file_path = os.path.join(dirpath, files[0])
                 if os.path.isfile(file_path):
                     print("File found: " + file_path)
                     # Pass the file path to the other function for processing
@@ -347,14 +404,70 @@ def check_file_presence(dirpath, char,tresh, result_queue):
                     print(tresh)
                     retMesage=BeginProcessing(image,char,"Scanner",tresh)   
                     result_queue.put(retMesage)
-                    
+                    os.remove(file_path)
+                    SaveImageToSavingDir(image)
                     return retMesage
         print("Waiting for directory to be created: " + dirpath)
         time.sleep(1)  # Check every 1 second
     result_queue.put("Error checking directory")
     return "Error checking directory"
 
+@app.route('/save-config/', methods=['POST'])
+def SaveConfig():
+     # Get the JSON data from the POST request
+    config_data = request.get_json()
+    # Check if all required fields are present
+    if not all(key in config_data for key in ("SavePath", "BackPath", "FrontPath")):
+        return jsonify({"error": "Missing required configuration data."}), 400
+
+    # Define the path where the config file will be saved
+    config_file_path = os.path.join(os.getcwd(), "config.json")
+    # Retrieve paths from config data
+    savepath = config_data.get("SavePath", "")
+    backpath = config_data.get("BackPath", "")
+    frontpath = config_data.get("FrontPath", "")
+    # Write the data to a JSON file
+    with open(config_file_path, 'w') as config_file:
+        json.dump(config_data, config_file, indent=4)
+ # Create directories if they don't exist
+    if savepath:
+        os.makedirs(savepath, exist_ok=True)
+        print(f"Save path created or exists: {savepath}")
+    
+    if backpath:
+        os.makedirs(backpath, exist_ok=True)
+        print(f"Back path created or exists: {backpath}")
+    
+    if frontpath:
+        os.makedirs(frontpath, exist_ok=True)
+        print(f"Front path created or exists: {frontpath}")
+    return jsonify({"message": "Configuration saved successfully."}), 200
 
 
+def ReadConfig():
+    config_file_path = os.path.join(os.getcwd(), "config.json")
+    # Ensure the file exists
+    if os.path.exists(config_file_path):
+        try:
+            with open(config_file_path, 'r') as config_file:
+                # Load the JSON data from the file
+                config_data = json.load(config_file)
+            
+                # Extract the paths
+                savepath = config_data.get("SavePath")
+                backpath = config_data.get("BackPath")
+                frontpath = config_data.get("FrontPath")
+            
+                # Print the paths
+                print("Save Path:", savepath)
+                print("Back Path:", backpath)
+                print("Front Path:", frontpath)
+                return savepath, backpath, frontpath
+        except Exception as e:
+            print(f"Error reading config file: {str(e)}")
+            return None
+    else:
+        print("Config file does not exist!")
+        return None
 if __name__ == '__main__':
     app.run(debug=False)

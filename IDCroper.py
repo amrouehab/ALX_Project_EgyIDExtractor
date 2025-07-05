@@ -79,7 +79,8 @@ class CardExtractor:
     def extractID(self, OCR):
         id_data = self.extract_data_area(40.0, 5.0, 30.0, 2.0)
         self.save_data_area(id_data, 'id_data_area.jpg')
-        ID = OCR.extract_numbers(id_data)
+        ID = str(OCR.extract_numbers(id_data))
+        ID= ID.replace(" ", "").strip()
         return ID
 
     def getFront_IDData(self):
@@ -243,25 +244,34 @@ class CardExtractor:
       daydata=self.extract_data_area(25.0, 23.0, 41.0, 40.5)
       self.save_data_area(monthdata, 'monthdata.jpg')
       month = OCR.extract_numbers(monthdata)
-      monthstr=str(month).strip()
+      monthstr = str(month).replace(" ", "").strip()
       self.save_data_area(daydata, 'daydata.jpg')
       day = OCR.extract_numbers(daydata)
-      daystr=str(day).strip()
+      daystr=str(day).replace(" ", "").strip()
       self.save_data_area(yeardata, 'yeardata.jpg')
       year = OCR.extract_numbers(yeardata)
-      yearstr=str(year).strip()
+      yearstr=str(year).replace(" ", "").strip()
       print("yearstr"+yearstr)
       print("monthstr"+monthstr)
       print("daystr"+daystr)
       if yearstr.__len__() > 4:
-        year = yearstr[0:4]
+        yearstr = yearstr[0:4]
       
       if monthstr.__len__() > 2:
-        month = monthstr[1:3]
+        if int(monthstr[0]) > 1:
+            print("month[0]>1")
+            monthstr = monthstr[1:3]         
+        else:
+           monthstr = monthstr[0:2]
       if daystr.__len__() > 2:
-        day = daystr[1:3]
+        print("day>2")
+        daystr = daystr[1:3]
+      if int(daystr[0]) == 8:
+         daystr="0"+daystr[1]
+      if int(monthstr[0]) == 8:
+         monthstr="0"+monthstr[1]
       self.save_data_area(enddate_data, 'enddate_data_area.jpg')
-      enddate = str(year)+"-"+str(month)+"-"+str(day)
+      enddate = yearstr+"-"+monthstr+"-"+daystr
       return enddate 
     def get_last_two_digits(self,number):
         # Convert the number to a string
@@ -387,8 +397,14 @@ class CardExtractor:
       self.save_data_area(profession_data2, 'profession2_data_area.jpg')
       profession1 = OCR.extract_arabic_text(profession_data1)
       profession2 = OCR.extract_arabic_text(profession_data2)
-      profession=profession1+" "+profession2   
-    
+      #if profession1==" " or profession2==" "or profession1==""or profession2 == "":
+       #  lines = All_ocr.splitlines()
+         # Concatenate the first two lines with spaces between them
+        # if len(lines) >= 2:
+         #   profession = f"{lines[0]} {lines[1]}"  # Adjust the number
+         ##   profession=profession1+" "+profession2    
+      #else:
+      profession=profession1+" "+profession2    
       # Extract religion data
       religion_data = self.extract_data_area(16.0, 33.0, 45.0, 30.0)
       gender_data =self.extract_data_area(16.0, 33.0, 60.0, 16.5)
