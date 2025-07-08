@@ -83,11 +83,26 @@ def check_tesseract():
     """Check if Tesseract is installed"""
     print_status("Checking Tesseract OCR...")
     
+    # First try normal command
     success, stdout, stderr = run_command(["tesseract", "--version"])
     
     if not success:
-        print_warning("Tesseract OCR not found")
-        return False
+        # On Windows, try direct path if chocolatey installed it
+        if platform.system() == "Windows":
+            tesseract_path = "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+            if os.path.exists(tesseract_path):
+                print_status("Found Tesseract in standard location, updating PATH...")
+                # Add to current session PATH
+                current_path = os.environ.get('PATH', '')
+                tesseract_dir = "C:\\Program Files\\Tesseract-OCR"
+                if tesseract_dir not in current_path:
+                    os.environ['PATH'] = current_path + os.pathsep + tesseract_dir
+                # Try again
+                success, stdout, stderr = run_command(["tesseract", "--version"])
+        
+        if not success:
+            print_warning("Tesseract OCR not found")
+            return False
     
     version_line = stdout.split('\n')[0]
     print_success(f"Tesseract found: {version_line}")
@@ -108,19 +123,32 @@ def install_tesseract():
     
     if system == "Windows":
         # Check for Chocolatey
-        success, _, _ = run_command(["choco", "--version"])
+        success, stdout, stderr = run_command(["choco", "--version"])
         if success:
             print_status("Installing Tesseract via Chocolatey...")
-            success, _, _ = run_command(["choco", "install", "tesseract", "-y"])
+            success, _, stderr = run_command(["choco", "install", "tesseract", "-y"])
             if success:
                 print_success("Tesseract installed via Chocolatey")
+                # Add to PATH for current session
+                tesseract_dir = "C:\\Program Files\\Tesseract-OCR"
+                current_path = os.environ.get('PATH', '')
+                if tesseract_dir not in current_path:
+                    os.environ['PATH'] = current_path + os.pathsep + tesseract_dir
+                    print_status("Added Tesseract to PATH for current session")
                 return True
+            else:
+                print_error(f"Chocolatey installation failed: {stderr}")
         
         print_warning("Chocolatey not found or installation failed")
-        print_warning("Please install Tesseract manually:")
+        print_warning("Manual Tesseract installation required:")
         print_warning("1. Download from: https://github.com/UB-Mannheim/tesseract/releases")
-        print_warning("2. Install to default location")
+        print_warning("2. Install to default location (C:\\Program Files\\Tesseract-OCR)")
         print_warning("3. Add to PATH environment variable")
+        print_warning("4. Install Arabic language pack if not included")
+        print_warning("")
+        print_warning("Alternative installation methods:")
+        print_warning("- Install Chocolatey: https://chocolatey.org/install")
+        print_warning("- Use Windows Package Manager: winget install UB-Mannheim.TesseractOCR")
         return False
         
     elif system == "Linux":
