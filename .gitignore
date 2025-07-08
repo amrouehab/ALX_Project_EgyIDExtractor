@@ -23,6 +23,8 @@ share/python-wheels/
 MANIFEST
 
 # Virtual Environment
+venv/
+env/
 pyvenv.cfg
 Lib/
 Scripts/
