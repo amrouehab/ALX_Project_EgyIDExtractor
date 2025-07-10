@@ -11,108 +11,16 @@ import uuid
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
-def find_and_draw_lines(image):
-    # Get image dimensions
-    height, width = image.shape[:2]
 
-    # Find horizontal line
-    horizontal_line_y = None
-    for y in range(height):
-        for x in range(width):
-            # Check if pixel is black
-            if image[y, x] == 0:
-                horizontal_line_y = y
-                break
-        if horizontal_line_y is not None:
-            break
-
-    # Draw horizontal line if found
-    if horizontal_line_y is not None:
-        cv2.line(image, (0, horizontal_line_y), (width - 1, horizontal_line_y), (255, 255, 255), 1)
-
-    # Find vertical line
-    vertical_line_x = None
-    for x in range(width):
-        for y in range(height):
-            # Check if pixel is black
-            if image[y, x] == 0:
-                vertical_line_x = x
-                break
-        if vertical_line_x is not None:
-            break
-
-    # Draw vertical line if found
-    if vertical_line_x is not None:
-        cv2.line(image, (vertical_line_x, 0), (vertical_line_x, height - 1), (255, 255, 255), 1)
-
-    return image
 def preprocess_image(card_image,char,scantype,tresh):
      # Convert the image to grayscale
     tresh=int(tresh)
-    gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
-    if scantype == "Scanner":
-        trsh=145
-    else:
-        trsh=120
-
-    if char=='B':
-        trsh=trsh-10     
+    gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY) 
     _, thresh = cv2.threshold(gray, tresh, 255, cv2.THRESH_BINARY_INV + cv2.ADAPTIVE_THRESH_MEAN_C)
     final_image = cv2.bitwise_not(thresh)
  
     return final_image
-# Function to preprocess the image
-def deskew(image):
-    # Convert the image to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Threshold the image
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    
-    # Find contours
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Get the orientation of the object
-    angle = 0.0
-    if len(contours) > 0:
-        rect = cv2.minAreaRect(contours[0])
-        angle = rect[2]
-        
-    # Correct skew angle
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
-    
-    # Perform rotation
-    h, w = image.shape[:2]
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    
-    return rotated
-def correct_skew(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    if contours:
-        largest_contour = max(contours, key=cv2.contourArea)
-        rect = cv2.minAreaRect(largest_contour)
-        angle = rect[-1]
-
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-
-        (h, w) = image.shape[:2]
-        center = (w // 2, h // 2)
-        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        corrected_image = cv2.warpAffine(image, rotation_matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-        return corrected_image
-    else:
-        return image
 def CropIDFromScannerImage(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     binary = cv2.bitwise_not(gray)
@@ -141,79 +49,13 @@ def CropIDFromScannerImage(image):
         print("No contours found.")
         return None
 
-def rotate_image(image, angle):
-    (h, w) = image.shape[:2]
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated = cv2.warpAffine(image, M, (w, h))
-    return rotated
-def match_template(template, image_gray):
-    best_match = None
-    best_value = -1
-    best_angle = 0
-    for angle in range(0, 360, 15):  # Rotate the template from 0 to 345 degrees in steps of 15
-        rotated_template = rotate_image(template, angle)
-        result = cv2.matchTemplate(image_gray, rotated_template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-        if max_val > best_value:
-            best_value = max_val
-            best_match = max_loc
-            best_template = rotated_template
-            best_angle = angle
-    return best_match, best_template.shape[::-1], best_angle
-def draw_rectangle(image, top_left, width_height):
-    bottom_right = (top_left[0] + width_height[1], top_left[1] + width_height[0])
-    cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)
-    return image, bottom_right
-
-def crop_region(image, top_left, bottom_right):
-    return image[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
-
-def extract_id_card_From_ScannerImage(image):
-    template_path = r'Test\template.jpg'  # Update this path
-    template_image = cv2.imread(template_path)
-    template_gray = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
-    # Convert image to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # Match template
-    top_left, template_size, best_angle = match_template(template_gray, gray)
-   # Draw rectangle around matched region
-    scanned_image_with_rect, bottom_right = draw_rectangle(image, top_left, template_size)
-    cv2.imwrite('scanned_image_with_rect.jpg', scanned_image_with_rect)
-    # Crop the matched region
-    cropped_id_card = crop_region(image, top_left, bottom_right)
-
-    return cropped_id_card
-def extract_largest_contour(image):
-    # Step 3: Detect contours
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
-    _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY)   
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Step 4: Find the largest contour
-    largest_contour = max(contours, key=cv2.contourArea)
-    
-    # Step 5: Extract the bounding box coordinates of the largest contour
-    x, y, w, h = cv2.boundingRect(largest_contour)
-    
-    # Step 6: Create a new image with the same dimensions as the bounding box
-    new_image = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Step 7: Copy the region defined by the bounding box from the original image to the new image
-    new_image[:, :] = image[y:y+h, x:x+w]
-    
-    # Step 8: Return the new image
-    return new_image
-
 def BeginProcessing(image,char,scantype,tresh):
     try:
      # Detect the card in the input image
         if scantype == "Scanner":
              card = CropIDFromScannerImage(image)
-             if card is None:
-                card = extract_id_card_From_ScannerImage(image)
         else:
-             card = CropIDFromScannerImage(image)   
+             card = CropIDFromScannerImage(image)    # we now not support webcam or camera images  : TODO
         # Save the detected card as a new image
         if char == 'F':
          cv2.imwrite('Frontdetected_card.jpg', card)
@@ -258,7 +100,7 @@ def recognize_text(char, threshold):
         return jsonify({'error': str(e)}), 500
 
     
-@app.route('/save/', methods=['POST'])
+@app.route('/save', methods=['POST'])
 def save_to_database():
     try:
         # Extract JSON data from the request
@@ -339,7 +181,7 @@ def SaveTODataBase(record):
 def home():
     return "OCR Server is running..."
 
-@app.route('/check-file/', methods=['POST'])
+@app.route('/check-file', methods=['POST'])
 def check_file():
     config_result = ReadConfig()
     if config_result is None:
@@ -412,20 +254,42 @@ def check_file_presence(dirpath, char,tresh, result_queue):
     result_queue.put("Error checking directory")
     return "Error checking directory"
 
-@app.route('/save-config/', methods=['POST'])
+@app.route('/save-config', methods=['POST'])
 def SaveConfig():
      # Get the JSON data from the POST request
     config_data = request.get_json()
-    # Check if all required fields are present
-    if not all(key in config_data for key in ("SavePath", "BackPath", "FrontPath")):
+    
+    # Print received data for debugging
+    print("Received config data:", config_data)
+    
+    # Check if all required fields are present (accepting both cases)
+    required_fields_lowercase = ["savePath", "backPath", "frontPath"]
+    required_fields_uppercase = ["SavePath", "BackPath", "FrontPath"]
+    
+    has_lowercase = all(key in config_data for key in required_fields_lowercase)
+    has_uppercase = all(key in config_data for key in required_fields_uppercase)
+    
+    if not (has_lowercase or has_uppercase):
         return jsonify({"error": "Missing required configuration data."}), 400
 
     # Define the path where the config file will be saved
     config_file_path = os.path.join(os.getcwd(), "config.json")
-    # Retrieve paths from config data
-    savepath = config_data.get("SavePath", "")
-    backpath = config_data.get("BackPath", "")
-    frontpath = config_data.get("FrontPath", "")
+    
+    # Retrieve paths from config data (handle both cases)
+    if has_lowercase:
+        savepath = config_data.get("savePath", "")
+        backpath = config_data.get("backPath", "")
+        frontpath = config_data.get("frontPath", "")
+        # Convert to uppercase format for storage
+        config_data = {
+            "SavePath": savepath,
+            "BackPath": backpath,
+            "FrontPath": frontpath
+        }
+    else:
+        savepath = config_data.get("SavePath", "")
+        backpath = config_data.get("BackPath", "")
+        frontpath = config_data.get("FrontPath", "")
     # Write the data to a JSON file
     with open(config_file_path, 'w') as config_file:
         json.dump(config_data, config_file, indent=4)

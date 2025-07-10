@@ -1,0 +1,5 @@
+{
+  "name": "National ID Extractor",
+  "description": "A React application that uses the Local OCR Service APIs to extract information from national ID cards. Users can upload images of the front and back of an ID, and the application will parse the data and display it in corresponding fields.",
+  "requestFramePermissions": []
+}
